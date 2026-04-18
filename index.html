@@ -250,7 +250,7 @@
     <div class="section-title">SEND</div>
     <div class="toggle-row"><input type="checkbox" id="sendNote" checked><label for="sendNote">Note On/Off</label></div>
     <div class="toggle-row"><input type="checkbox" id="sendCC10" checked><label for="sendCC10">CC10 (Pan/X)</label></div>
-    <div class="toggle-row"><input type="checkbox" id="sendCC74" checked><label for="sendCC74">CC74 (Y)</label></div>
+    <div class="toggle-row"><input type="checkbox" id="sendCC74" checked><label for="sendCC74">CC74 (Y)</label><input type="checkbox" id="cc74Invert" style="margin-left:8px;"><label for="cc74Invert" style="color:#888;font-size:9px;">INV</label></div>
 
     <div class="section-title">SHAPE</div>
     <select id="shapeSelect">
@@ -268,6 +268,13 @@
       <span id="motion-val" style="color:#4af;">0.00%</span>
     </div>
     <div id="motion-track"><div id="motion-fill"></div></div>
+
+    <div class="section-title">MOTION GATE</div>
+    <div class="slider-row">
+      <span class="lbl">Diff Gate</span>
+      <input type="range" id="diffGate" min="0" max="80" value="10" step="1">
+      <span class="val-disp" id="diffGateVal">10</span>
+    </div>
 
     <div class="section-title">CHANNELS</div>
     <div class="ch-grid" id="ch-grid"></div>
@@ -297,6 +304,11 @@
       <span class="lbl">Off Thresh</span>
       <input type="range" id="thOff" min="0" max="10" value="0.5" step="0.1">
       <span class="val-disp" id="thOffVal">0.5</span>
+    </div>
+    <div class="slider-row">
+      <span class="lbl">Vel ×</span>
+      <input type="range" id="velMult" min="0.5" max="2.0" value="1.0" step="0.05">
+      <span class="val-disp" id="velMultVal">1.00</span>
     </div>
 
     <div class="section-title">PHYSICS</div>
@@ -386,7 +398,7 @@
 const MIDI_W   = 128;
 const MIDI_H   = 72;
 const MAX_PARTICLES = 800;
-const DIFF_THRESHOLD = 10;     // pixel diff to consider as motion
+// DIFF_THRESHOLD is now driven by the diffGate slider
 const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
 
 // ──────────────────────────────────────
@@ -647,13 +659,14 @@ function processVideoFrame() {
   }
 
   // Frame diff
+  const diffGate = parseFloat(document.getElementById('diffGate').value);
   let totalDiff  = 0;
   const diffs    = [];
 
   for (let i = 0; i < currGray.length; i++) {
     const d = Math.abs(currGray[i] - prevGray[i]);
     totalDiff += d;
-    if (d > DIFF_THRESHOLD) {
+    if (d > diffGate) {
       diffs.push({
         idx   : i,
         x     : i % MIDI_W,
@@ -700,9 +713,11 @@ function processVideoFrame() {
 function handleMidiLogic() {
   const bpm      = parseFloat(document.getElementById('bpm').value) || 120;
   const thOff    = parseFloat(document.getElementById('thOff').value);
-  const sendNote = document.getElementById('sendNote').checked;
-  const sendCC10 = document.getElementById('sendCC10').checked;
-  const sendCC74 = document.getElementById('sendCC74').checked;
+  const sendNote   = document.getElementById('sendNote').checked;
+  const sendCC10   = document.getElementById('sendCC10').checked;
+  const sendCC74   = document.getElementById('sendCC74').checked;
+  const cc74Invert = document.getElementById('cc74Invert').checked;
+  const velMult    = parseFloat(document.getElementById('velMult').value);
 
   if (totalChangePct < thOff) return;
 
@@ -721,12 +736,15 @@ function handleMidiLogic() {
       const rawNote  = Math.round(p.bright / 255 * 36 + 36);
       const finalN   = quantizeToScale(rawNote);
       const baseVel  = Math.round(p.diff / 255 * 75 + 25);
-      const finalVel = Math.max(1, baseVel - i);
+      const finalVel = Math.min(127, Math.max(1, Math.round((baseVel - i) * velMult)));
       midiNoteOn(i, finalN, finalVel);
       midiNoteOff(i, finalN);
     }
-    if (sendCC10) midiCC(i, 10,  Math.min(127, p.x));
-    if (sendCC74) midiCC(i, 74,  Math.min(127, p.y * 2));
+    if (sendCC10) midiCC(i, 10, Math.min(127, p.x));
+    if (sendCC74) {
+      const cc74Raw = Math.min(127, p.y * 2);
+      midiCC(i, 74, cc74Invert ? 127 - cc74Raw : cc74Raw);
+    }
   }
 }
 
@@ -1033,6 +1051,8 @@ function hookSliders() {
     ['fxPixelBlur', 'fxPixelBlurVal'],
     ['thOff',       'thOffVal'],
     ['bgAlpha',     'bgAlphaVal'],
+    ['diffGate',    'diffGateVal'],
+    ['velMult',     'velMultVal'],
   ];
 
   for (const [sliderId, dispId] of sliderMap) {
