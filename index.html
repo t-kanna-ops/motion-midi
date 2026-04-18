@@ -1,0 +1,1053 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Motion MIDI Controller Web v1.0</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #282828;
+    color: #ddd;
+    font-family: 'Courier New', monospace;
+    font-size: 12px;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  /* ── Header ── */
+  #header {
+    background: #1a1a1a;
+    padding: 6px 14px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    border-bottom: 1px solid #444;
+    flex-shrink: 0;
+  }
+  #header h1 { font-size: 13px; color: #4af; letter-spacing: 1px; }
+  #status    { font-size: 11px; color: #8f8; }
+  #fps-disp  { font-size: 11px; color: #888; margin-left: auto; }
+
+  /* ── Layout ── */
+  #main {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+  }
+
+  .side-panel {
+    width: 210px;
+    background: #202020;
+    padding: 8px;
+    overflow-y: auto;
+    flex-shrink: 0;
+    border-right: 1px solid #333;
+  }
+  #right-panel { border-right: none; border-left: 1px solid #333; }
+
+  #center {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 6px;
+    background: #111;
+    overflow: hidden;
+  }
+
+  /* ── Controls ── */
+  .section-title {
+    color: #4af;
+    font-size: 10px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    border-bottom: 1px solid #333;
+    padding-bottom: 2px;
+    margin: 8px 0 5px;
+  }
+  .section-title:first-child { margin-top: 2px; }
+
+  label {
+    display: block;
+    color: #999;
+    margin-bottom: 2px;
+    font-size: 10px;
+  }
+
+  select, input[type="text"], input[type="number"] {
+    background: #333;
+    color: #ddd;
+    border: 1px solid #555;
+    padding: 3px 5px;
+    width: 100%;
+    font-size: 11px;
+    font-family: inherit;
+  }
+  select:focus, input:focus { outline: 1px solid #4af; }
+
+  input[type="range"] {
+    width: 100%;
+    accent-color: #4af;
+    cursor: pointer;
+    height: 4px;
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-bottom: 5px;
+  }
+  .slider-row .lbl {
+    min-width: 72px;
+    color: #999;
+    font-size: 10px;
+    flex-shrink: 0;
+  }
+  .slider-row input[type="range"] { flex: 1; }
+  .val-disp { color: #4af; font-size: 10px; min-width: 30px; text-align: right; flex-shrink: 0; }
+
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 4px;
+  }
+  .toggle-row label { margin: 0; color: #bbb; }
+  input[type="checkbox"] { cursor: pointer; accent-color: #4af; width: 13px; height: 13px; flex-shrink: 0; }
+
+  button {
+    background: #383838;
+    color: #ccc;
+    border: 1px solid #555;
+    padding: 4px 10px;
+    cursor: pointer;
+    font-size: 11px;
+    font-family: inherit;
+  }
+  button:hover  { background: #4a4a4a; }
+  button:active { background: #222; }
+
+  #panic-btn { color: #f88; border-color: #844; }
+  #panic-btn:hover { background: #432; }
+
+  /* ── Canvases ── */
+  #viz-canvas {
+    border: 1px solid #333;
+    background: #000;
+    max-width: 100%;
+    max-height: 100%;
+  }
+
+  #preview-canvas {
+    border: 1px solid #333;
+    width: 192px;
+    height: 108px;
+    display: block;
+  }
+
+  /* ── Motion bar ── */
+  #motion-track {
+    background: #333;
+    height: 6px;
+    border-radius: 3px;
+    overflow: hidden;
+    margin-top: 3px;
+  }
+  #motion-fill {
+    height: 100%;
+    background: linear-gradient(to right, #4af, #f4a);
+    width: 0%;
+    transition: width 0.08s;
+  }
+
+  /* ── Channels grid ── */
+  .ch-grid  { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+  .ch-item  { display: flex; align-items: center; gap: 2px; font-size: 10px; color: #aaa; }
+
+  /* ── Scale grid ── */
+  .scale-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
+  .scale-item { display: flex; align-items: center; gap: 2px; font-size: 9px; color: #aaa; }
+  .sharp { color: #88c; }
+
+  /* ── Notice overlay ── */
+  #notice {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100;
+  }
+  #notice-box {
+    background: #1e1e2e;
+    border: 1px solid #4af;
+    padding: 24px 32px;
+    max-width: 480px;
+    line-height: 1.8;
+  }
+  #notice-box h2   { color: #4af; margin-bottom: 12px; font-size: 14px; }
+  #notice-box code { color: #fa4; background: #111; padding: 2px 6px; }
+  #notice-box p    { color: #bbb; font-size: 12px; margin-bottom: 8px; }
+  #notice-close    { margin-top: 16px; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar       { width: 5px; }
+  ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<!-- ══════════════════════════════════════
+     NOTICE OVERLAY
+══════════════════════════════════════ -->
+<div id="notice">
+  <div id="notice-box">
+    <h2>Motion MIDI Controller Web — 起動方法</h2>
+    <p>カメラ・WebMIDI を使うには <strong>HTTPS または localhost</strong> から開く必要があります。</p>
+    <p>ローカルサーバーを起動してください：</p>
+    <p><code>npx serve .</code> &nbsp; または &nbsp; <code>python -m http.server 8080</code></p>
+    <p>その後 <code>http://localhost:8080</code> (または <code>http://localhost:5000</code>) をブラウザで開いてください。</p>
+    <p style="color:#f84; font-size:11px;">⚠ MIDI送信には Chrome / Edge を推奨します（WebMIDI対応）。</p>
+    <button id="notice-close">このまま続行する（MIDI/カメラが使えない場合があります）</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════
+     HEADER
+══════════════════════════════════════ -->
+<div id="header">
+  <h1>Motion MIDI Controller Web v1.0</h1>
+  <span id="status">MIDI: 未接続</span>
+  <span id="cam-status" style="font-size:11px;color:#f84;">カメラ: 未接続</span>
+  <span id="fps-disp">FPS: --</span>
+</div>
+
+<!-- ══════════════════════════════════════
+     MAIN
+══════════════════════════════════════ -->
+<div id="main">
+
+  <!-- ── LEFT PANEL ── -->
+  <div class="side-panel" id="left-panel">
+
+    <div class="section-title">カメラ</div>
+    <label>Camera</label>
+    <select id="cameraSelect"><option value="">-- Camera --</option></select>
+
+    <div class="section-title">MIDI</div>
+    <label>MIDI Output</label>
+    <select id="midiSelect"><option value="">-- Select Device --</option></select>
+    <div style="margin-top:5px; display:flex; gap:5px;">
+      <button id="panic-btn">MIDI RESET</button>
+    </div>
+
+    <div class="section-title">SEND</div>
+    <div class="toggle-row"><input type="checkbox" id="sendNote" checked><label for="sendNote">Note On/Off</label></div>
+    <div class="toggle-row"><input type="checkbox" id="sendCC10" checked><label for="sendCC10">CC10 (Pan/X)</label></div>
+    <div class="toggle-row"><input type="checkbox" id="sendCC74" checked><label for="sendCC74">CC74 (Y)</label></div>
+
+    <div class="section-title">SHAPE</div>
+    <select id="shapeSelect">
+      <option>Circle</option>
+      <option>Square</option>
+      <option>Triangle</option>
+      <option>Line</option>
+      <option>Particle</option>
+    </select>
+
+    <div class="section-title">PREVIEW</div>
+    <canvas id="preview-canvas"></canvas>
+    <div style="margin-top:4px; display:flex; justify-content:space-between;">
+      <span style="color:#888;">Motion:</span>
+      <span id="motion-val" style="color:#4af;">0.00%</span>
+    </div>
+    <div id="motion-track"><div id="motion-fill"></div></div>
+
+    <div class="section-title">CHANNELS</div>
+    <div class="ch-grid" id="ch-grid"></div>
+
+    <div class="section-title">SCALE (スケール)</div>
+    <div class="scale-grid" id="scale-grid"></div>
+
+  </div><!-- /left-panel -->
+
+  <!-- ── CENTER ── -->
+  <div id="center">
+    <canvas id="viz-canvas"></canvas>
+  </div>
+
+  <!-- ── RIGHT PANEL ── -->
+  <div class="side-panel" id="right-panel">
+
+    <div class="section-title">TRANSPORT</div>
+    <div class="slider-row">
+      <span class="lbl">BPM</span>
+      <input type="number" id="bpm" value="120" min="20" max="400"
+             style="width:60px;background:#333;color:#ddd;border:1px solid #555;padding:3px;font-family:inherit;">
+    </div>
+
+    <div class="section-title">THRESHOLD</div>
+    <div class="slider-row">
+      <span class="lbl">Off Thresh</span>
+      <input type="range" id="thOff" min="0" max="10" value="0.5" step="0.1">
+      <span class="val-disp" id="thOffVal">0.5</span>
+    </div>
+
+    <div class="section-title">PHYSICS</div>
+    <div class="slider-row">
+      <span class="lbl">Gravity</span>
+      <input type="range" id="gravity" min="-10" max="10" value="0" step="0.1">
+      <span class="val-disp" id="gravityVal">0.0</span>
+    </div>
+    <div class="slider-row">
+      <span class="lbl">Wind</span>
+      <input type="range" id="wind" min="-10" max="10" value="0" step="0.1">
+      <span class="val-disp" id="windVal">0.0</span>
+    </div>
+    <div class="slider-row">
+      <span class="lbl">Obj Scale</span>
+      <input type="range" id="objScale" min="0.1" max="3.0" value="1.0" step="0.05">
+      <span class="val-disp" id="objScaleVal">1.0</span>
+    </div>
+
+    <div class="section-title">COLOR</div>
+    <div class="slider-row">
+      <span class="lbl">Hue Shift</span>
+      <input type="range" id="hueShift" min="-180" max="180" value="0">
+      <span class="val-disp" id="hueShiftVal">0</span>
+    </div>
+    <div class="toggle-row" style="margin-bottom:5px;">
+      <input type="checkbox" id="autoHue"><label for="autoHue">Auto Hue</label>
+    </div>
+    <div class="slider-row">
+      <span class="lbl">Contrast</span>
+      <input type="range" id="contrast" min="0" max="3.0" value="1.0" step="0.05">
+      <span class="val-disp" id="contrastVal">1.0</span>
+    </div>
+
+    <div class="section-title">ADSR (パーティクル)</div>
+    <div class="slider-row">
+      <span class="lbl">A: Fade In</span>
+      <input type="range" id="adsrA" min="1" max="60" value="10">
+      <span class="val-disp" id="adsrAVal">10</span>
+    </div>
+    <div class="slider-row">
+      <span class="lbl">S: Decay</span>
+      <input type="range" id="adsrS" min="0.1" max="20" value="2.0" step="0.1">
+      <span class="val-disp" id="adsrSVal">2.0</span>
+    </div>
+    <div class="slider-row">
+      <span class="lbl">R: Lifetime</span>
+      <input type="range" id="adsrR" min="10" max="300" value="60">
+      <span class="val-disp" id="adsrRVal">60</span>
+    </div>
+
+    <div class="section-title">FX</div>
+    <div class="slider-row">
+      <span class="lbl">Pixel Blur</span>
+      <input type="range" id="fxPixelBlur" min="0" max="30" value="0" step="0.5">
+      <span class="val-disp" id="fxPixelBlurVal">0</span>
+    </div>
+    <div class="toggle-row">
+      <input type="checkbox" id="showBg" checked><label for="showBg">BG Layer</label>
+    </div>
+    <div class="slider-row" id="bg-alpha-row">
+      <span class="lbl">BG Alpha</span>
+      <input type="range" id="bgAlpha" min="0" max="1" value="0.25" step="0.01">
+      <span class="val-disp" id="bgAlphaVal">0.25</span>
+    </div>
+
+    <div class="section-title">INFO</div>
+    <div style="color:#666; font-size:10px; line-height:1.7;">
+      Space: MIDI Panic<br>
+      WebMIDI: Chrome/Edge推奨<br>
+      HTTPS/localhost必須
+    </div>
+
+  </div><!-- /right-panel -->
+
+</div><!-- /main -->
+
+<!-- ══════════════════════════════════════
+     JAVASCRIPT
+══════════════════════════════════════ -->
+<script>
+'use strict';
+
+// ──────────────────────────────────────
+// Constants
+// ──────────────────────────────────────
+const MIDI_W   = 128;
+const MIDI_H   = 72;
+const MAX_PARTICLES = 800;
+const DIFF_THRESHOLD = 10;     // pixel diff to consider as motion
+const NOTE_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+
+// ──────────────────────────────────────
+// State
+// ──────────────────────────────────────
+let midiAccess  = null;
+let midiOutput  = null;
+let videoStream = null;
+
+// Persistent pixel buffers (no GC pressure per frame)
+const currGray  = new Uint8Array(MIDI_W * MIDI_H);
+const prevGray  = new Uint8Array(MIDI_W * MIDI_H);
+
+let topPixels      = [];
+let totalChangePct = 0;
+let lastNoteTime   = 0;
+
+// Particle pool
+const particles = [];
+
+// Scale / channel masks
+const scaleMask = new Array(12).fill(true);
+const chEnabled = new Array(16).fill(true);
+
+// FPS
+let frameCount = 0, fpsTimer = 0, currentFps = 0;
+
+// Auto hue
+let autoHueActive = false;
+
+// Persistent canvas for pixel blur (avoid per-frame allocation)
+const blurCanvas = document.createElement('canvas');
+const blurCtx    = blurCanvas.getContext('2d');
+
+// ──────────────────────────────────────
+// DOM references
+// ──────────────────────────────────────
+const video         = document.createElement('video');
+video.autoplay      = true;
+video.playsInline   = true;
+video.muted         = true;
+
+const smallCanvas = document.createElement('canvas');
+smallCanvas.width  = MIDI_W;
+smallCanvas.height = MIDI_H;
+const smallCtx = smallCanvas.getContext('2d', { willReadFrequently: true });
+
+const vizCanvas   = document.getElementById('viz-canvas');
+const vizCtx      = vizCanvas.getContext('2d');
+const prevCanvas  = document.getElementById('preview-canvas');
+const prevCtx     = prevCanvas.getContext('2d', { willReadFrequently: false });
+
+// ──────────────────────────────────────
+// Startup
+// ──────────────────────────────────────
+document.getElementById('notice-close').addEventListener('click', () => {
+  document.getElementById('notice').style.display = 'none';
+});
+
+window.addEventListener('load', async () => {
+  initVizCanvas();
+  buildChannelGrid();
+  buildScaleGrid();
+  hookSliders();
+  await initCamera();
+  await initMidi();
+  requestAnimationFrame(mainLoop);
+});
+
+window.addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); midiPanic(); }
+});
+
+// ──────────────────────────────────────
+// Viz canvas – responsive 16:9
+// ──────────────────────────────────────
+function initVizCanvas() {
+  function resize() {
+    const center = document.getElementById('center');
+    const w = center.clientWidth  - 8;
+    const h = center.clientHeight - 8;
+    if (w / h > 16 / 9) {
+      vizCanvas.height = h;
+      vizCanvas.width  = Math.floor(h * 16 / 9);
+    } else {
+      vizCanvas.width  = w;
+      vizCanvas.height = Math.floor(w * 9 / 16);
+    }
+  }
+  resize();
+  window.addEventListener('resize', resize);
+}
+
+// ──────────────────────────────────────
+// Camera
+// ──────────────────────────────────────
+async function initCamera() {
+  const camStatus = document.getElementById('cam-status');
+  try {
+    // Request permission first so labels are populated
+    const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
+    tmp.getTracks().forEach(t => t.stop());
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameras = devices.filter(d => d.kind === 'videoinput');
+
+    const sel = document.getElementById('cameraSelect');
+    sel.innerHTML = '';
+    cameras.forEach((cam, i) => {
+      const opt = document.createElement('option');
+      opt.value       = cam.deviceId;
+      opt.textContent = cam.label || `カメラ ${i + 1}`;
+      sel.appendChild(opt);
+    });
+
+    sel.addEventListener('change', () => startCamera(sel.value));
+
+    if (cameras.length > 0) {
+      await startCamera(cameras[0].deviceId);
+      camStatus.textContent = 'カメラ: 接続済';
+      camStatus.style.color = '#8f8';
+    }
+  } catch (e) {
+    camStatus.textContent = 'カメラ: エラー (' + e.name + ')';
+    camStatus.style.color = '#f88';
+    console.error('Camera init error:', e);
+  }
+}
+
+async function startCamera(deviceId) {
+  if (videoStream) videoStream.getTracks().forEach(t => t.stop());
+  try {
+    videoStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        deviceId : { exact: deviceId },
+        width    : { ideal: 640 },
+        height   : { ideal: 360 },
+        frameRate: { ideal: 30 }
+      }
+    });
+    video.srcObject = videoStream;
+    await video.play();
+  } catch (e) {
+    console.error('startCamera error:', e);
+  }
+}
+
+// ──────────────────────────────────────
+// WebMIDI
+// ──────────────────────────────────────
+async function initMidi() {
+  const statusEl = document.getElementById('status');
+  if (!navigator.requestMIDIAccess) {
+    statusEl.textContent = 'MIDI: WebMIDI非対応（Chrome/Edge推奨）';
+    statusEl.style.color = '#f88';
+    return;
+  }
+  try {
+    midiAccess = await navigator.requestMIDIAccess({ sysex: false });
+    populateMidiDevices();
+    midiAccess.onstatechange = populateMidiDevices;
+    statusEl.textContent = 'MIDI: 準備完了';
+  } catch (e) {
+    statusEl.textContent = 'MIDI: アクセス拒否 (' + e.message + ')';
+    statusEl.style.color = '#f88';
+  }
+}
+
+function populateMidiDevices() {
+  const sel  = document.getElementById('midiSelect');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">-- Select Device --</option>';
+  for (const [id, out] of midiAccess.outputs) {
+    const opt = document.createElement('option');
+    opt.value       = id;
+    opt.textContent = out.name;
+    sel.appendChild(opt);
+  }
+  // Restore selection after state change
+  if (prev && sel.querySelector(`option[value="${CSS.escape(prev)}"]`)) sel.value = prev;
+}
+
+document.getElementById('midiSelect').addEventListener('change', function () {
+  const statusEl = document.getElementById('status');
+  if (!midiAccess) return;
+  midiOutput = midiAccess.outputs.get(this.value) || null;
+  statusEl.textContent = midiOutput ? `MIDI: ${midiOutput.name}` : 'MIDI: 未接続';
+  statusEl.style.color = midiOutput ? '#8f8' : '#fa8';
+});
+
+document.getElementById('panic-btn').addEventListener('click', midiPanic);
+
+// ──────────────────────────────────────
+// MIDI helpers
+// ──────────────────────────────────────
+function midiSend(bytes) {
+  if (!midiOutput) return;
+  try { midiOutput.send(bytes); } catch (_) {}
+}
+
+function midiNoteOn(ch, note, vel) {
+  note = Math.max(0, Math.min(127, note));
+  vel  = Math.max(1,   Math.min(127, vel));
+  midiSend([0x90 | (ch & 0x0F), note, vel]);
+}
+
+function midiNoteOff(ch, note) {
+  note = Math.max(0, Math.min(127, note));
+  midiSend([0x80 | (ch & 0x0F), note, 0]);
+}
+
+function midiCC(ch, num, val) {
+  val = Math.max(0, Math.min(127, val));
+  midiSend([0xB0 | (ch & 0x0F), num & 0x7F, val]);
+}
+
+function midiPanic() {
+  if (!midiOutput) return;
+  for (let i = 0; i < 16; i++) {
+    midiCC(i, 123, 0); // All Notes Off
+    midiCC(i, 120, 0); // All Sound Off
+  }
+  console.log('MIDI PANIC SENT');
+}
+
+// ──────────────────────────────────────
+// Scale quantizer
+// ──────────────────────────────────────
+function quantizeToScale(note) {
+  const pc = ((note % 12) + 12) % 12;
+  if (scaleMask[pc]) return note;
+  for (let d = 1; d <= 6; d++) {
+    if (scaleMask[(pc + d) % 12])      return note + d;
+    if (scaleMask[(pc - d + 12) % 12]) return note - d;
+  }
+  return note;
+}
+
+// ──────────────────────────────────────
+// Video frame processing
+// ──────────────────────────────────────
+function processVideoFrame() {
+  if (!video.videoWidth || video.readyState < 2) return null;
+
+  // Mirror flip + downsample to 128×72
+  smallCtx.save();
+  smallCtx.scale(-1, 1);
+  smallCtx.drawImage(video, -MIDI_W, 0, MIDI_W, MIDI_H);
+  smallCtx.restore();
+
+  const imageData = smallCtx.getImageData(0, 0, MIDI_W, MIDI_H);
+  const px = imageData.data;
+
+  // Convert to grayscale into currGray buffer
+  for (let i = 0; i < MIDI_W * MIDI_H; i++) {
+    const r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+    currGray[i] = (77 * r + 150 * g + 29 * b) >> 8; // fast integer luma
+  }
+
+  // Frame diff
+  let totalDiff  = 0;
+  const diffs    = [];
+
+  for (let i = 0; i < currGray.length; i++) {
+    const d = Math.abs(currGray[i] - prevGray[i]);
+    totalDiff += d;
+    if (d > DIFF_THRESHOLD) {
+      diffs.push({
+        idx   : i,
+        x     : i % MIDI_W,
+        y     : Math.floor(i / MIDI_W),
+        bright: currGray[i],
+        diff  : d
+      });
+    }
+  }
+
+  totalChangePct = (totalDiff / (MIDI_W * MIDI_H * 255)) * 100;
+
+  // Sort by diff descending, keep top 16
+  diffs.sort((a, b) => b.diff - a.diff);
+  topPixels = diffs.slice(0, 16);
+
+  // Swap buffers
+  prevGray.set(currGray);
+
+  // ── Preview canvas ──
+  prevCtx.drawImage(smallCanvas, 0, 0, prevCanvas.width, prevCanvas.height);
+  prevCtx.strokeStyle = '#00ff88';
+  prevCtx.lineWidth   = 1.5;
+  for (const p of topPixels) {
+    prevCtx.beginPath();
+    prevCtx.arc(
+      (p.x / MIDI_W) * prevCanvas.width,
+      (p.y / MIDI_H) * prevCanvas.height,
+      5, 0, Math.PI * 2
+    );
+    prevCtx.stroke();
+  }
+
+  // Motion bar
+  document.getElementById('motion-val').textContent  = totalChangePct.toFixed(2) + '%';
+  document.getElementById('motion-fill').style.width = Math.min(100, totalChangePct * 5) + '%';
+
+  return imageData;
+}
+
+// ──────────────────────────────────────
+// MIDI logic
+// ──────────────────────────────────────
+function handleMidiLogic() {
+  const bpm      = parseFloat(document.getElementById('bpm').value) || 120;
+  const thOff    = parseFloat(document.getElementById('thOff').value);
+  const sendNote = document.getElementById('sendNote').checked;
+  const sendCC10 = document.getElementById('sendCC10').checked;
+  const sendCC74 = document.getElementById('sendCC74').checked;
+
+  if (totalChangePct < thOff) return;
+
+  const msPerBeat = 60000 / bpm;
+  const trigDur   = msPerBeat / 4;   // 16th note gate
+  const now       = performance.now();
+  if (now - lastNoteTime < trigDur) return;
+  lastNoteTime = now;
+
+  for (let i = 0; i < topPixels.length; i++) {
+    if (!chEnabled[i]) continue;
+    const p = topPixels[i];
+
+    if (sendNote) {
+      // Map brightness 0-255 → note 36-72, then scale-quantize
+      const rawNote  = Math.round(p.bright / 255 * 36 + 36);
+      const finalN   = quantizeToScale(rawNote);
+      const baseVel  = Math.round(p.diff / 255 * 75 + 25);
+      const finalVel = Math.max(1, baseVel - i);
+      midiNoteOn(i, finalN, finalVel);
+      midiNoteOff(i, finalN);
+    }
+    if (sendCC10) midiCC(i, 10,  Math.min(127, p.x));
+    if (sendCC74) midiCC(i, 74,  Math.min(127, p.y * 2));
+  }
+}
+
+// ──────────────────────────────────────
+// Particles
+// ──────────────────────────────────────
+function spawnParticles(imgData) {
+  if (particles.length >= MAX_PARTICLES) return;
+
+  const shape    = document.getElementById('shapeSelect').value;
+  const objScale = parseFloat(document.getElementById('objScale').value);
+  const adsrA    = parseFloat(document.getElementById('adsrA').value);
+  const adsrS    = parseFloat(document.getElementById('adsrS').value);
+  const adsrR    = parseFloat(document.getElementById('adsrR').value);
+  const px       = imgData.data;
+
+  const vw = vizCanvas.width;
+  const vh = vizCanvas.height;
+
+  for (const p of topPixels) {
+    if (particles.length >= MAX_PARTICLES) break;
+    const i = p.idx;
+    const r = px[i * 4];
+    const g = px[i * 4 + 1];
+    const b = px[i * 4 + 2];
+
+    particles.push({
+      x     : (p.x / MIDI_W) * vw - vw / 2,
+      y     : (p.y / MIDI_H) * vh - vh / 2,
+      size  : Math.max(2, p.diff * objScale * 0.18),
+      r, g, b,
+      alpha : 0,
+      age   : 0,
+      adsrA, adsrS, adsrR,
+      shape
+    });
+  }
+}
+
+function drawParticles(hueShift, contrast, gravity, wind) {
+  vizCtx.save();
+  vizCtx.translate(vizCanvas.width / 2, vizCanvas.height / 2);
+
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+
+    // Physics
+    p.x   += wind;
+    p.y   += gravity;
+    p.age += 1;
+
+    // Envelope
+    if (p.age <= p.adsrA) {
+      p.alpha = (p.age / p.adsrA) * 255;
+    } else {
+      p.alpha -= p.adsrS;
+    }
+
+    if (p.alpha <= 0 || p.age > p.adsrR) {
+      particles.splice(i, 1);
+      continue;
+    }
+
+    // Color: apply hue shift + contrast
+    const [hh, ss, vv] = rgbToHsv(p.r, p.g, p.b);
+    let nh = (hh + hueShift / 360 + 10) % 1;
+    const nb = Math.min(1, vv * contrast);
+    const [dr, dg, db] = hsvToRgb(nh, ss, nb);
+
+    const alpha = p.alpha / 255;
+    const sz    = p.size;
+
+    vizCtx.globalAlpha  = alpha;
+    vizCtx.fillStyle    = `rgb(${dr | 0},${dg | 0},${db | 0})`;
+    vizCtx.strokeStyle  = vizCtx.fillStyle;
+
+    switch (p.shape) {
+      case 'Circle':
+        vizCtx.beginPath();
+        vizCtx.arc(p.x, p.y, sz, 0, Math.PI * 2);
+        vizCtx.fill();
+        break;
+
+      case 'Square':
+        vizCtx.fillRect(p.x - sz / 2, p.y - sz / 2, sz, sz);
+        break;
+
+      case 'Triangle':
+        vizCtx.beginPath();
+        vizCtx.moveTo(p.x, p.y - sz);
+        vizCtx.lineTo(p.x + sz, p.y + sz * 0.8);
+        vizCtx.lineTo(p.x - sz, p.y + sz * 0.8);
+        vizCtx.closePath();
+        vizCtx.fill();
+        break;
+
+      case 'Line':
+        vizCtx.lineWidth = Math.max(1, sz / 4);
+        vizCtx.beginPath();
+        vizCtx.moveTo(p.x,      p.y - sz);
+        vizCtx.lineTo(p.x + sz, p.y + sz);
+        vizCtx.stroke();
+        break;
+
+      case 'Particle':
+        vizCtx.lineWidth = 1;
+        for (let k = 0; k < 4; k++) {
+          const ox = (Math.random() - 0.5) * sz * 2;
+          const oy = (Math.random() - 0.5) * sz * 2;
+          vizCtx.beginPath();
+          vizCtx.arc(p.x + ox, p.y + oy, 1.5, 0, Math.PI * 2);
+          vizCtx.fill();
+        }
+        break;
+    }
+  }
+
+  vizCtx.restore();
+  vizCtx.globalAlpha = 1;
+}
+
+// ──────────────────────────────────────
+// Color helpers
+// ──────────────────────────────────────
+function rgbToHsv(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b);
+  const min  = Math.min(r, g, b);
+  const d    = max - min;
+  let h = 0;
+  const s = max === 0 ? 0 : d / max;
+  const v = max;
+  if (d !== 0) {
+    if      (max === r) h = ((g - b) / d + 6) % 6;
+    else if (max === g) h = (b - r) / d + 2;
+    else                h = (r - g) / d + 4;
+    h /= 6;
+  }
+  return [h, s, v];
+}
+
+function hsvToRgb(h, s, v) {
+  const i = Math.floor(h * 6) % 6;
+  const f = h * 6 - Math.floor(h * 6);
+  const p = v * (1 - s);
+  const q = v * (1 - f * s);
+  const t = v * (1 - (1 - f) * s);
+  let r, g, b;
+  switch (i) {
+    case 0: r=v; g=t; b=p; break;
+    case 1: r=q; g=v; b=p; break;
+    case 2: r=p; g=v; b=t; break;
+    case 3: r=p; g=q; b=v; break;
+    case 4: r=t; g=p; b=v; break;
+    default: r=v; g=p; b=q; break;
+  }
+  return [r * 255, g * 255, b * 255];
+}
+
+// ──────────────────────────────────────
+// Main loop
+// ──────────────────────────────────────
+function mainLoop(timestamp) {
+  requestAnimationFrame(mainLoop);
+
+  // FPS counter
+  frameCount++;
+  if (timestamp - fpsTimer >= 1000) {
+    currentFps = frameCount;
+    frameCount = 0;
+    fpsTimer   = timestamp;
+    document.getElementById('fps-disp').textContent = `FPS: ${currentFps}`;
+  }
+
+  // Auto hue
+  if (autoHueActive) {
+    const sl = document.getElementById('hueShift');
+    let v = parseFloat(sl.value) + 1;
+    if (v > 180) v = -180;
+    sl.value = v;
+    document.getElementById('hueShiftVal').textContent = v | 0;
+  }
+
+  // Read sliders (fast DOM reads, called once per frame)
+  const hueShift  = parseFloat(document.getElementById('hueShift').value);
+  const contrast  = parseFloat(document.getElementById('contrast').value);
+  const gravity   = parseFloat(document.getElementById('gravity').value);
+  const wind      = parseFloat(document.getElementById('wind').value);
+  const pixelBlur = parseFloat(document.getElementById('fxPixelBlur').value);
+  const showBg    = document.getElementById('showBg').checked;
+  const bgAlpha   = parseFloat(document.getElementById('bgAlpha').value);
+
+  // ── Process video ──
+  const imgData = processVideoFrame();
+
+  // ── Draw frame ──
+  const vw = vizCanvas.width;
+  const vh = vizCanvas.height;
+
+  // Clear with black
+  vizCtx.globalCompositeOperation = 'source-over';
+  vizCtx.fillStyle = '#000';
+  vizCtx.fillRect(0, 0, vw, vh);
+
+  // BG layer (mirrored camera)
+  if (showBg && video.videoWidth) {
+    vizCtx.save();
+    vizCtx.globalAlpha = bgAlpha;
+    vizCtx.translate(vw, 0);
+    vizCtx.scale(-1, 1);
+    vizCtx.drawImage(video, 0, 0, vw, vh);
+    vizCtx.restore();
+  }
+
+  // Particles with additive blending
+  vizCtx.globalCompositeOperation = 'lighter';
+  if (imgData) spawnParticles(imgData);
+  drawParticles(hueShift, contrast, gravity, wind);
+  vizCtx.globalCompositeOperation = 'source-over';
+
+  // Pixel blur (pixelate effect — downsample then upscale)
+  if (pixelBlur > 0) {
+    const factor = Math.max(1, pixelBlur);
+    const sw = Math.max(1, Math.floor(vw / factor));
+    const sh = Math.max(1, Math.floor(vh / factor));
+    if (blurCanvas.width !== sw || blurCanvas.height !== sh) {
+      blurCanvas.width  = sw;
+      blurCanvas.height = sh;
+    }
+    blurCtx.drawImage(vizCanvas, 0, 0, sw, sh);
+    vizCtx.imageSmoothingEnabled = false;
+    vizCtx.drawImage(blurCanvas, 0, 0, vw, vh);
+    vizCtx.imageSmoothingEnabled = true;
+  }
+
+  // Particle count overlay
+  vizCtx.fillStyle    = 'rgba(0,0,0,0.5)';
+  vizCtx.font         = '10px monospace';
+  vizCtx.fillStyle    = '#555';
+  vizCtx.fillText(`particles: ${particles.length}`, 6, vh - 6);
+
+  // ── MIDI ──
+  handleMidiLogic();
+}
+
+// ──────────────────────────────────────
+// UI builders
+// ──────────────────────────────────────
+function buildChannelGrid() {
+  const grid = document.getElementById('ch-grid');
+  for (let i = 0; i < 16; i++) {
+    const div = document.createElement('div');
+    div.className = 'ch-item';
+
+    const cb = document.createElement('input');
+    cb.type    = 'checkbox';
+    cb.id      = `ch_${i}`;
+    cb.checked = true;
+    cb.addEventListener('change', () => { chEnabled[i] = cb.checked; });
+
+    const lbl = document.createElement('label');
+    lbl.htmlFor     = `ch_${i}`;
+    lbl.textContent = `${i + 1}`;
+
+    div.appendChild(cb);
+    div.appendChild(lbl);
+    grid.appendChild(div);
+  }
+}
+
+function buildScaleGrid() {
+  const grid = document.getElementById('scale-grid');
+  for (let i = 0; i < 12; i++) {
+    const div = document.createElement('div');
+    div.className = 'scale-item';
+
+    const cb = document.createElement('input');
+    cb.type    = 'checkbox';
+    cb.id      = `sc_${i}`;
+    cb.checked = true;
+    cb.addEventListener('change', () => { scaleMask[i] = cb.checked; });
+
+    const lbl = document.createElement('label');
+    lbl.htmlFor     = `sc_${i}`;
+    lbl.textContent = NOTE_NAMES[i];
+    if (NOTE_NAMES[i].includes('#')) lbl.className = 'sharp';
+
+    div.appendChild(cb);
+    div.appendChild(lbl);
+    grid.appendChild(div);
+  }
+}
+
+function hookSliders() {
+  const sliderMap = [
+    ['gravity',     'gravityVal'],
+    ['wind',        'windVal'],
+    ['objScale',    'objScaleVal'],
+    ['hueShift',    'hueShiftVal'],
+    ['contrast',    'contrastVal'],
+    ['adsrA',       'adsrAVal'],
+    ['adsrS',       'adsrSVal'],
+    ['adsrR',       'adsrRVal'],
+    ['fxPixelBlur', 'fxPixelBlurVal'],
+    ['thOff',       'thOffVal'],
+    ['bgAlpha',     'bgAlphaVal'],
+  ];
+
+  for (const [sliderId, dispId] of sliderMap) {
+    const slider = document.getElementById(sliderId);
+    const disp   = document.getElementById(dispId);
+    if (!slider || !disp) continue;
+    const fmt = v => parseFloat(v).toFixed(slider.step && slider.step.includes('.') ? 2 : 0);
+    disp.textContent = fmt(slider.value);
+    slider.addEventListener('input', () => { disp.textContent = fmt(slider.value); });
+  }
+
+  document.getElementById('autoHue').addEventListener('change', e => {
+    autoHueActive = e.target.checked;
+  });
+}
+</script>
+</body>
+</html>
